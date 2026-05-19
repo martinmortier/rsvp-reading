@@ -6,7 +6,9 @@
 
 const CURRENT_BOOK_KEY = 'rsvp-sync-current-book';
 
-const BACKEND_URL = 'http://uk0kk0csswoswgsw4kcw484s.168.119.182.2.sslip.io';
+// Empty string = same origin (the SPA is served by nginx which proxies
+// /api/* to the backend). This avoids CORS and mixed-content issues.
+const BACKEND_URL = '';
 
 export function loadConfig() {
   return { enabled: true, url: BACKEND_URL, token: '' };
@@ -47,7 +49,7 @@ function apiUrl(path) {
 }
 
 export async function ping() {
-  const res = await fetch(`${BACKEND_URL}/health`, { method: 'GET' });
+  const res = await fetch(`${BACKEND_URL}/health-backend`, { method: 'GET' });
   if (!res.ok) throw new Error(`Backend not reachable (HTTP ${res.status})`);
   return res.json();
 }

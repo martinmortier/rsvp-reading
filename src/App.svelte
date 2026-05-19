@@ -271,6 +271,22 @@
     }
   }
 
+  function pushPositionBeacon() {
+    if (!currentBookId || !sync.isEnabled()) return;
+    if (currentWordIndex === lastSyncedWordIndex) return;
+    try {
+      sync.beaconProgress(currentBookId, {
+        position_word: currentWordIndex,
+        position_total: words.length,
+        wpm: wordsPerMinute,
+        title: currentBookTitle || undefined
+      });
+      lastSyncedWordIndex = currentWordIndex;
+    } catch (e) {
+      console.warn('Beacon push failed:', e);
+    }
+  }
+
   function saveCurrentSession() {
     if (words.length === 0) return false;
     return saveSession({
@@ -422,15 +438,49 @@
     }
   }
 
-  onMount(() => {
+  async function restoreLastBook() {
+    const id = sync.getCurrentBookId();
+    if (!id || !sync.isEnabled()) return false;
+    try {
+      isLoadingFile = true;
+      loadingMessage = 'Restoring last book...';
+      const meta = await sync.getBook(id);
+      const blob = await sync.downloadBookFile(id);
+      const file = sync.blobToFile(blob, meta.filename || meta.title, meta.mime_type);
+      text = await parseFile(file);
+      parseText();
+      currentBookId = id;
+      currentBookTitle = meta.title || '';
+      if (Number.isFinite(meta.position_word) && meta.position_word > 0) {
+        currentWordIndex = Math.min(meta.position_word, words.length);
+        progress = words.length ? (currentWordIndex / words.length) * 100 : 0;
+      }
+      lastSyncedWordIndex = currentWordIndex;
+      // Don't surface the auto-restore prompt when we already restored from cloud
+      showSavedSessionPrompt = false;
+      loadingMessage = `Resumed at word ${currentWordIndex}/${words.length}`;
+      setTimeout(() => { loadingMessage = ''; }, 2000);
+      return true;
+    } catch (e) {
+      console.warn('Failed to restore last book:', e);
+      // Don't keep a stale id pointing to a deleted book
+      if (String(e.message).includes('404')) sync.setCurrentBookId(null);
+      loadingMessage = '';
+      return false;
+    } finally {
+      isLoadingFile = false;
+    }
+  }
+
+  onMount(async () => {
     parseText();
     window.addEventListener('keydown', handleKeydown);
 
-    // Restore last open book id (best-effort)
-    currentBookId = sync.getCurrentBookId();
+    // Try to restore the last opened book from the backend
+    const restored = await restoreLastBook();
 
-    // Check for saved session
-    if (hasSession()) {
+    // Fallback: prompt for the locally saved session only if no cloud restore happened
+    if (!restored && hasSession()) {
       savedSessionInfo = getSessionSummary();
       if (savedSessionInfo) {
         showSavedSessionPrompt = true;
@@ -444,8 +494,12 @@
       }
     }, 5000);
 
-    // Push final position on unload
-    window.addEventListener('beforeunload', pushPositionIfNeeded);
+    // Push final position on unload (synchronously via Beacon API)
+    window.addEventListener('beforeunload', pushPositionBeacon);
+    window.addEventListener('pagehide', pushPositionBeacon);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') pushPositionBeacon();
+    });
   });
 
   onDestroy(() => {
@@ -453,7 +507,8 @@
     if (fadeTimeoutId) clearTimeout(fadeTimeoutId);
     if (syncTimer) clearInterval(syncTimer);
     window.removeEventListener('keydown', handleKeydown);
-    window.removeEventListener('beforeunload', pushPositionIfNeeded);
+    window.removeEventListener('beforeunload', pushPositionBeacon);
+    window.removeEventListener('pagehide', pushPositionBeacon);
   });
 </script>
 

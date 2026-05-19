@@ -109,6 +109,21 @@ export async function updateProgress(id, payload) {
   return res.json();
 }
 
+/**
+ * Fire-and-forget progress push, designed to run on page unload.
+ * Uses the Beacon API so the request survives navigation.
+ */
+export function beaconProgress(id, payload) {
+  if (!id || typeof navigator === 'undefined' || !navigator.sendBeacon) return false;
+  const url = apiUrl(`/api/books/${id}/beacon`);
+  const blob = new Blob([JSON.stringify(payload || {})], { type: 'application/json' });
+  try {
+    return navigator.sendBeacon(url, blob);
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteBook(id) {
   const res = await fetch(apiUrl(`/api/books/${id}`), {
     method: 'DELETE',

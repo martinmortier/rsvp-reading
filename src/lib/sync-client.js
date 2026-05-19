@@ -1,51 +1,24 @@
 /**
  * Cloud sync client for Speeedy backend.
  *
- * The backend exposes /api/books with bearer auth. This module wraps the HTTP
- * calls and stores the user's backend config in localStorage so the UI can
- * toggle sync on/off without re-entering credentials.
+ * The backend URL is hardcoded; sync is always active.
  */
 
-const CONFIG_KEY = 'rsvp-sync-config';
 const CURRENT_BOOK_KEY = 'rsvp-sync-current-book';
 
-/**
- * @typedef {Object} SyncConfig
- * @property {boolean} enabled
- * @property {string} url     - Backend base URL (no trailing slash)
- * @property {string} token   - Bearer token
- */
-
-const DEFAULT_CONFIG = { enabled: false, url: '', token: '' };
+const BACKEND_URL = 'http://uk0kk0csswoswgsw4kcw484s.168.119.182.2.sslip.io';
 
 export function loadConfig() {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    if (!raw) return { ...DEFAULT_CONFIG };
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
+  return { enabled: true, url: BACKEND_URL, token: '' };
 }
 
-export function saveConfig(cfg) {
-  try {
-    const clean = {
-      enabled: !!cfg.enabled,
-      url: (cfg.url || '').replace(/\/+$/, ''),
-      token: cfg.token || ''
-    };
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(clean));
-    return clean;
-  } catch (e) {
-    console.error('Failed to save sync config:', e);
-    return cfg;
-  }
+export function saveConfig() {
+  // No-op: backend URL is hardcoded.
+  return loadConfig();
 }
 
 export function isEnabled() {
-  const cfg = loadConfig();
-  return cfg.enabled && !!cfg.url;
+  return true;
 }
 
 export function getCurrentBookId() {
@@ -66,20 +39,15 @@ export function setCurrentBookId(id) {
 }
 
 function authHeaders() {
-  const cfg = loadConfig();
-  if (!cfg.token) return {};
-  return { Authorization: `Bearer ${cfg.token}` };
+  return {};
 }
 
 function apiUrl(path) {
-  const cfg = loadConfig();
-  return `${cfg.url}${path}`;
+  return `${BACKEND_URL}${path}`;
 }
 
 export async function ping() {
-  const cfg = loadConfig();
-  if (!cfg.url) throw new Error('Backend URL is empty');
-  const res = await fetch(`${cfg.url}/health`, { method: 'GET' });
+  const res = await fetch(`${BACKEND_URL}/health`, { method: 'GET' });
   if (!res.ok) throw new Error(`Backend not reachable (HTTP ${res.status})`);
   return res.json();
 }
@@ -112,17 +80,13 @@ export async function downloadBookFile(id) {
  * @returns {Promise<{id:string, existed:boolean}>}
  */
 export async function uploadBook(file, opts = {}) {
-  const cfg = loadConfig();
-  if (!cfg.url) throw new Error('Backend URL is empty');
   const form = new FormData();
   form.append('file', file);
   if (opts.title) form.append('title', opts.title);
   if (opts.metadata) form.append('metadata', JSON.stringify(opts.metadata));
 
-  const headers = cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {};
-  const res = await fetch(`${cfg.url}/api/books`, {
+  const res = await fetch(`${BACKEND_URL}/api/books`, {
     method: 'POST',
-    headers,
     body: form
   });
   if (!res.ok) throw new Error(`uploadBook failed (HTTP ${res.status})`);

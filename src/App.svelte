@@ -19,7 +19,6 @@
   import Settings from './lib/components/Settings.svelte';
   import TextInput from './lib/components/TextInput.svelte';
   import ProgressBar from './lib/components/ProgressBar.svelte';
-  import SyncSettings from './lib/components/SyncSettings.svelte';
   import Library from './lib/components/Library.svelte';
   import { extractWordFrame } from './lib/rsvp-utils.js';
   import * as sync from './lib/sync-client.js';
@@ -42,7 +41,6 @@
   let showSavedSessionPrompt = false;
 
   // Cloud sync state
-  let showSyncSettings = false;
   let showLibrary = false;
   let currentBookId = null;
   let currentBookTitle = '';
@@ -487,7 +485,7 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showTextInput = !showTextInput; showSettings = false; showJumpTo = false; showLibrary = false; showSyncSettings = false; }}
+          on:click={() => { showTextInput = !showTextInput; showSettings = false; showJumpTo = false; showLibrary = false; }}
           title="Load Content"
           class:active={showTextInput}
         >
@@ -497,7 +495,7 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showLibrary = !showLibrary; showTextInput = false; showSettings = false; showJumpTo = false; showSyncSettings = false; }}
+          on:click={() => { showLibrary = !showLibrary; showTextInput = false; showSettings = false; showJumpTo = false; }}
           title="Library"
           class:active={showLibrary}
         >
@@ -507,17 +505,7 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showSyncSettings = !showSyncSettings; showTextInput = false; showSettings = false; showJumpTo = false; showLibrary = false; }}
-          title="Cloud Sync"
-          class:active={showSyncSettings}
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
-          </svg>
-        </button>
-        <button
-          class="icon-btn"
-          on:click={() => { showSettings = !showSettings; showTextInput = false; showJumpTo = false; showLibrary = false; showSyncSettings = false; }}
+          on:click={() => { showSettings = !showSettings; showTextInput = false; showJumpTo = false; showLibrary = false; }}
           title="Settings"
           class:active={showSettings}
         >
@@ -558,12 +546,6 @@
         bind:frameWordCount
         on:close={() => showSettings = false}
       />
-    </div>
-  {/if}
-
-  {#if showSyncSettings && !isFocusMode}
-    <div class="panel-overlay" on:click|self={() => showSyncSettings = false} role="presentation">
-      <SyncSettings on:close={() => showSyncSettings = false} on:saved={() => showSyncSettings = false} />
     </div>
   {/if}
 

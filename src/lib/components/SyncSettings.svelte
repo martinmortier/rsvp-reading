@@ -60,10 +60,10 @@
   </label>
 
   <label class="field">
-    <span>Auth token</span>
+    <span>Auth token <em>(optional)</em></span>
     <input
       type="password"
-      placeholder="Bearer token from your backend"
+      placeholder="Leave empty if backend has no AUTH_TOKEN"
       bind:value={cfg.token}
       autocomplete="off"
       spellcheck="false"

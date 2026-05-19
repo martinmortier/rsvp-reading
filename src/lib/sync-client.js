@@ -45,7 +45,7 @@ export function saveConfig(cfg) {
 
 export function isEnabled() {
   const cfg = loadConfig();
-  return cfg.enabled && !!cfg.url && !!cfg.token;
+  return cfg.enabled && !!cfg.url;
 }
 
 export function getCurrentBookId() {
@@ -67,9 +67,8 @@ export function setCurrentBookId(id) {
 
 function authHeaders() {
   const cfg = loadConfig();
-  return {
-    Authorization: `Bearer ${cfg.token}`
-  };
+  if (!cfg.token) return {};
+  return { Authorization: `Bearer ${cfg.token}` };
 }
 
 function apiUrl(path) {
@@ -120,9 +119,10 @@ export async function uploadBook(file, opts = {}) {
   if (opts.title) form.append('title', opts.title);
   if (opts.metadata) form.append('metadata', JSON.stringify(opts.metadata));
 
+  const headers = cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {};
   const res = await fetch(`${cfg.url}/api/books`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.token}` },
+    headers,
     body: form
   });
   if (!res.ok) throw new Error(`uploadBook failed (HTTP ${res.status})`);

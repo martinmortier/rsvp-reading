@@ -19,7 +19,10 @@
   import Settings from './lib/components/Settings.svelte';
   import TextInput from './lib/components/TextInput.svelte';
   import ProgressBar from './lib/components/ProgressBar.svelte';
+  import SyncSettings from './lib/components/SyncSettings.svelte';
+  import Library from './lib/components/Library.svelte';
   import { extractWordFrame } from './lib/rsvp-utils.js';
+  import * as sync from './lib/sync-client.js';
 
   // State
   let frameWordCount = 1;
@@ -37,6 +40,15 @@
   let jumpToValue = '';
   let savedSessionInfo = null;
   let showSavedSessionPrompt = false;
+
+  // Cloud sync state
+  let showSyncSettings = false;
+  let showLibrary = false;
+  let currentBookId = null;
+  let currentBookTitle = '';
+  let syncErrorMessage = '';
+  let lastSyncedWordIndex = -1;
+  let syncTimer = null;
 
   // Settings
   let wordsPerMinute = 300;
@@ -166,14 +178,98 @@
       text = await parseFile(file);
       stop();
       parseText();
+      currentBookTitle = file.name || '';
       showTextInput = false;
       loadingMessage = '';
+
+      // Cloud sync: upload + restore position if available
+      if (sync.isEnabled()) {
+        try {
+          loadingMessage = 'Uploading to backend...';
+          isLoadingFile = true;
+          const { id, existed } = await sync.uploadBook(file, { title: file.name });
+          currentBookId = id;
+          sync.setCurrentBookId(id);
+          if (existed) {
+            // Restore last known position from backend
+            const remote = await sync.getBook(id);
+            if (remote && Number.isFinite(remote.position_word) && remote.position_word > 0) {
+              currentWordIndex = Math.min(remote.position_word, words.length);
+              progress = words.length ? (currentWordIndex / words.length) * 100 : 0;
+              loadingMessage = `Resumed at word ${currentWordIndex}/${words.length}`;
+              setTimeout(() => { loadingMessage = ''; }, 2500);
+            } else {
+              loadingMessage = '';
+            }
+          } else {
+            loadingMessage = '';
+          }
+          lastSyncedWordIndex = currentWordIndex;
+          syncErrorMessage = '';
+        } catch (e) {
+          console.error('Sync upload failed:', e);
+          syncErrorMessage = `Sync upload failed: ${e.message}`;
+          loadingMessage = syncErrorMessage;
+          setTimeout(() => { loadingMessage = ''; }, 4000);
+        }
+      } else {
+        currentBookId = null;
+        sync.setCurrentBookId(null);
+      }
     } catch (error) {
       console.error('Error parsing file:', error);
       loadingMessage = `Error: ${error.message}`;
       setTimeout(() => { loadingMessage = ''; }, 3000);
     } finally {
       isLoadingFile = false;
+    }
+  }
+
+  async function handleLibraryOpen(event) {
+    const book = event.detail.book;
+    if (!book) return;
+    isLoadingFile = true;
+    loadingMessage = `Loading ${book.title}...`;
+    showLibrary = false;
+    try {
+      const blob = await sync.downloadBookFile(book.id);
+      const file = sync.blobToFile(blob, book.filename || book.title, book.mime_type);
+      text = await parseFile(file);
+      stop();
+      parseText();
+      currentBookId = book.id;
+      currentBookTitle = book.title;
+      sync.setCurrentBookId(book.id);
+      if (Number.isFinite(book.position_word) && book.position_word > 0) {
+        currentWordIndex = Math.min(book.position_word, words.length);
+        progress = words.length ? (currentWordIndex / words.length) * 100 : 0;
+      }
+      lastSyncedWordIndex = currentWordIndex;
+      loadingMessage = '';
+    } catch (e) {
+      console.error('Failed to load from library:', e);
+      loadingMessage = `Error: ${e.message}`;
+      setTimeout(() => { loadingMessage = ''; }, 4000);
+    } finally {
+      isLoadingFile = false;
+    }
+  }
+
+  async function pushPositionIfNeeded() {
+    if (!currentBookId || !sync.isEnabled()) return;
+    if (currentWordIndex === lastSyncedWordIndex) return;
+    try {
+      await sync.updateProgress(currentBookId, {
+        position_word: currentWordIndex,
+        position_total: words.length,
+        wpm: wordsPerMinute,
+        title: currentBookTitle || undefined
+      });
+      lastSyncedWordIndex = currentWordIndex;
+      syncErrorMessage = '';
+    } catch (e) {
+      console.warn('Sync push failed:', e);
+      syncErrorMessage = e.message;
     }
   }
 
@@ -332,6 +428,9 @@
     parseText();
     window.addEventListener('keydown', handleKeydown);
 
+    // Restore last open book id (best-effort)
+    currentBookId = sync.getCurrentBookId();
+
     // Check for saved session
     if (hasSession()) {
       savedSessionInfo = getSessionSummary();
@@ -339,12 +438,24 @@
         showSavedSessionPrompt = true;
       }
     }
+
+    // Auto-sync position every 5 seconds when a book is loaded
+    syncTimer = setInterval(() => {
+      if ((isPlaying || isPaused) && currentBookId) {
+        pushPositionIfNeeded();
+      }
+    }, 5000);
+
+    // Push final position on unload
+    window.addEventListener('beforeunload', pushPositionIfNeeded);
   });
 
   onDestroy(() => {
     if (intervalId) clearTimeout(intervalId);
     if (fadeTimeoutId) clearTimeout(fadeTimeoutId);
+    if (syncTimer) clearInterval(syncTimer);
     window.removeEventListener('keydown', handleKeydown);
+    window.removeEventListener('beforeunload', pushPositionIfNeeded);
   });
 </script>
 
@@ -376,7 +487,7 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showTextInput = !showTextInput; showSettings = false; showJumpTo = false; }}
+          on:click={() => { showTextInput = !showTextInput; showSettings = false; showJumpTo = false; showLibrary = false; showSyncSettings = false; }}
           title="Load Content"
           class:active={showTextInput}
         >
@@ -386,7 +497,27 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showSettings = !showSettings; showTextInput = false; showJumpTo = false; }}
+          on:click={() => { showLibrary = !showLibrary; showTextInput = false; showSettings = false; showJumpTo = false; showSyncSettings = false; }}
+          title="Library"
+          class:active={showLibrary}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+          </svg>
+        </button>
+        <button
+          class="icon-btn"
+          on:click={() => { showSyncSettings = !showSyncSettings; showTextInput = false; showSettings = false; showJumpTo = false; showLibrary = false; }}
+          title="Cloud Sync"
+          class:active={showSyncSettings}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
+          </svg>
+        </button>
+        <button
+          class="icon-btn"
+          on:click={() => { showSettings = !showSettings; showTextInput = false; showJumpTo = false; showLibrary = false; showSyncSettings = false; }}
           title="Settings"
           class:active={showSettings}
         >
@@ -427,6 +558,18 @@
         bind:frameWordCount
         on:close={() => showSettings = false}
       />
+    </div>
+  {/if}
+
+  {#if showSyncSettings && !isFocusMode}
+    <div class="panel-overlay" on:click|self={() => showSyncSettings = false} role="presentation">
+      <SyncSettings on:close={() => showSyncSettings = false} on:saved={() => showSyncSettings = false} />
+    </div>
+  {/if}
+
+  {#if showLibrary && !isFocusMode}
+    <div class="panel-overlay" on:click|self={() => showLibrary = false} role="presentation">
+      <Library on:close={() => showLibrary = false} on:open={handleLibraryOpen} />
     </div>
   {/if}
 
